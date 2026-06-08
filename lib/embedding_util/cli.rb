@@ -87,6 +87,10 @@ module EmbeddingUtil
         host: options[:host],
         port: options[:port]&.to_i
       )
+    rescue Error => e
+      abort e.message
+    rescue Interrupt
+      exit 130
     end
 
     no_commands do

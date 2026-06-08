@@ -54,11 +54,36 @@ module EmbeddingUtil
       runtime == :llama_server ? "llama-server" : runtime.to_s
     end
 
+    def detached_server?
+      runtime == :ramalama
+    end
+
+    def stop_argv
+      return unless detached_server?
+
+      stop_argvs.first
+    end
+
+    def stop_argvs
+      return [] unless detached_server?
+
+      [
+        ["ramalama", "stop", server_name],
+        ["podman", "stop", "--time", "0", server_name],
+        ["docker", "stop", server_name]
+      ].select { |argv| self.class.command_path(argv.first) }
+    end
+
+    def server_name
+      "embedding-util-#{server_model.name}".tr("_", "-")
+    end
+
     private
 
     def ramalama_argv
       [
         "ramalama", "--runtime=llama.cpp", "serve",
+        "--name", server_name,
         "--host", host,
         "--port", port.to_s,
         "--runtime-args=#{server_model.settings.fetch(:server_flags).join(' ')}",

@@ -44,18 +44,20 @@ module EmbeddingUtil
       puts "starting #{server_model.name} with #{command.label} on http://#{host}:#{selected_port}"
       puts "shutdown idle: #{shutdown_idle}s" if shutdown_idle&.positive?
 
+      previous_traps = install_interrupt_traps
       Open3.popen2e(*command.argv) do |_stdin, output, wait_thread|
-        write_state(server_model, pid: wait_thread.pid, url: "http://#{host}:#{selected_port}", runtime: command.label, port: selected_port)
-        watchdog = start_watchdog(wait_thread.pid, shutdown_idle) { last_output_at }
-
-        output.each_line do |line|
-          last_output_at = Time.now
-          print line
-        end
-
-        watchdog&.kill
+        url = "http://#{host}:#{selected_port}"
+        write_state(server_model, pid: wait_thread.pid, url: url, runtime: command.label, port: selected_port)
+        last_output_at_mutex = Mutex.new
+        reader = stream_output(output) { last_output_at_mutex.synchronize { last_output_at = Time.now } }
+        wait_for_runtime_serving(command, server_model, url, wait_thread.pid)
+        supervise_runtime(command, wait_thread, shutdown_idle) { last_output_at_mutex.synchronize { last_output_at } }
+      ensure
+        cleanup_runtime(command, wait_thread)
+        reader&.kill
+        reader&.join
         delete_state(server_model)
-        wait_thread.value.exitstatus
+        restore_interrupt_traps(previous_traps)
       end
     end
 
@@ -148,6 +150,96 @@ module EmbeddingUtil
           break
         end
       end
+    end
+
+    def stream_output(output)
+      Thread.new do
+        output.each_line do |line|
+          yield
+          print line
+        end
+      end
+    end
+
+    def wait_for_runtime_serving(command, server_model, url, pid)
+      warn "waiting for #{server_model.name} at #{url}" if config.verbose
+      wait_for_serving(server_model, url, pid, check_process: !command.detached_server?)
+      warn "#{server_model.name} is healthy" if config.verbose
+    end
+
+    def supervise_runtime(command, wait_thread, shutdown_idle, &last_output_at)
+      warn "supervising #{command.server_name}" if config.verbose && command.detached_server?
+      return supervise_detached_server(command, shutdown_idle, &last_output_at) if command.detached_server?
+
+      watchdog = start_watchdog(wait_thread.pid, shutdown_idle, &last_output_at)
+      wait_thread.value.exitstatus
+    ensure
+      watchdog&.kill
+    end
+
+    def wait_for_serving(server_model, url, pid, check_process: true)
+      deadline = Time.now + config.startup_timeout
+      loop do
+        return if healthy_url?(url)
+        raise UnsupportedProviderError, "#{server_model.name} server process exited before becoming healthy" if check_process && !process_running?(pid)
+        raise UnsupportedProviderError, "timed out after #{config.startup_timeout}s waiting for #{server_model.name} to become healthy" if Time.now >= deadline
+
+        sleep 0.25
+      end
+    end
+
+    def supervise_detached_server(command, shutdown_idle)
+      loop do
+        if idle_expired?(shutdown_idle, yield)
+          warn "stopping #{command.server_name} after #{shutdown_idle}s idle" if config.verbose
+          stop_detached_server(command)
+          return 0
+        end
+
+        sleep [shutdown_idle.to_f / 5.0, 1].max
+      end
+    rescue Interrupt
+      stop_detached_server(command)
+      130
+    end
+
+    def idle_expired?(shutdown_idle, last_output_at)
+      shutdown_idle&.positive? && Time.now - last_output_at >= shutdown_idle
+    end
+
+    def stop_detached_server(command)
+      command.stop_argvs.any? do |stop_argv|
+        system(*stop_argv, out: File::NULL, err: File::NULL)
+      end
+    end
+
+    def cleanup_runtime(command, wait_thread)
+      return unless command
+
+      if command.detached_server?
+        stop_detached_server(command)
+      else
+        terminate_runtime_process(command, wait_thread&.pid)
+      end
+    end
+
+    def terminate_runtime_process(command, pid)
+      return if command.detached_server? || !pid || pid == Process.pid || !process_running?(pid)
+
+      terminate_idle_process(pid)
+    rescue Errno::ESRCH
+      nil
+    end
+
+    def install_interrupt_traps
+      %w[INT TERM].to_h do |signal|
+        previous = Signal.trap(signal) { Thread.main.raise Interrupt }
+        [signal, previous]
+      end
+    end
+
+    def restore_interrupt_traps(previous_traps)
+      previous_traps&.each { |signal, handler| Signal.trap(signal, handler) }
     end
 
     def terminate_idle_process(pid)

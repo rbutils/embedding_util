@@ -2,6 +2,7 @@
 
 require "tmpdir"
 require "socket"
+require "stringio"
 
 RSpec.describe EmbeddingUtil::ServerManager do
   let(:config) do
@@ -91,6 +92,90 @@ RSpec.describe EmbeddingUtil::ServerManager do
 
     expect(Process).to have_received(:kill).with("TERM", 12_345).once
     expect(Process).not_to have_received(:kill).with("KILL", 12_345)
+  end
+
+  it "terminates non-detached runtime processes during cleanup" do
+    command = instance_double(EmbeddingUtil::RuntimeCommand, detached_server?: false)
+    allow(manager).to receive(:process_running?).and_return(true, false)
+    allow(manager).to receive(:terminate_idle_process)
+
+    manager.send(:terminate_runtime_process, command, 12_345)
+
+    expect(manager).to have_received(:terminate_idle_process).with(12_345)
+  end
+
+  it "does not terminate detached runtime launcher pids during cleanup" do
+    command = instance_double(EmbeddingUtil::RuntimeCommand, detached_server?: true)
+    allow(manager).to receive(:terminate_idle_process)
+
+    manager.send(:terminate_runtime_process, command, 12_345)
+
+    expect(manager).not_to have_received(:terminate_idle_process)
+  end
+
+  it "does not terminate the current process when specs stub wait thread pids" do
+    command = instance_double(EmbeddingUtil::RuntimeCommand, detached_server?: false)
+    allow(manager).to receive(:terminate_idle_process)
+
+    manager.send(:terminate_runtime_process, command, Process.pid)
+
+    expect(manager).not_to have_received(:terminate_idle_process)
+  end
+
+  it "starts the idle watchdog only after the server is healthy" do
+    events = []
+    wait_thread = double("wait_thread", pid: Process.pid, value: instance_double(Process::Status, exitstatus: 0))
+    allow(Open3).to receive(:popen2e).and_yield(nil, StringIO.new, wait_thread)
+    allow(manager).to receive(:selected_port_for).and_return(18_080)
+    allow(manager).to receive(:wait_for_serving) { events << :healthy }
+    allow(manager).to receive(:start_watchdog) do
+      events << :watchdog
+      double("watchdog", kill: nil)
+    end
+
+    manager.serve(model: model, runtime: :llama_server, shutdown_idle: 5)
+
+    expect(events).to eq(%i[healthy watchdog])
+  end
+
+  it "does not consider idle shutdown while waiting for startup health" do
+    allow(manager).to receive(:healthy_url?).and_return(false)
+    allow(manager).to receive(:process_running?).and_return(false)
+
+    expect do
+      manager.send(:wait_for_serving, model, "http://127.0.0.1:18080", 12_345)
+    end.to raise_error(EmbeddingUtil::UnsupportedProviderError, /server process exited before becoming healthy/)
+  end
+
+  it "allows detached launchers to exit before the named server becomes healthy" do
+    allow(manager).to receive(:healthy_url?).and_return(false, true)
+    allow(manager).to receive(:process_running?).and_return(false)
+
+    expect do
+      manager.send(:wait_for_serving, model, "http://127.0.0.1:18080", 12_345, check_process: false)
+    end.not_to raise_error
+  end
+
+  it "stops detached Ramalama servers after stdout is idle" do
+    command = instance_double(EmbeddingUtil::RuntimeCommand)
+    allow(manager).to receive(:sleep)
+    allow(manager).to receive(:stop_detached_server)
+
+    expect(manager.send(:supervise_detached_server, command, 5) { Time.now - 6 }).to eq(0)
+    expect(manager).to have_received(:stop_detached_server).with(command)
+  end
+
+  it "tries fallback stop commands for detached servers" do
+    command = instance_double(
+      EmbeddingUtil::RuntimeCommand,
+      stop_argvs: [%w[ramalama stop model], %w[podman stop --time 0 model]]
+    )
+    allow(manager).to receive(:system).and_return(false, true)
+
+    manager.send(:stop_detached_server, command)
+
+    expect(manager).to have_received(:system).with("ramalama", "stop", "model", out: File::NULL, err: File::NULL).ordered
+    expect(manager).to have_received(:system).with("podman", "stop", "--time", "0", "model", out: File::NULL, err: File::NULL).ordered
   end
 
   it "reports missing processes as unhealthy" do
