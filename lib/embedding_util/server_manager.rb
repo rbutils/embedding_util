@@ -113,6 +113,8 @@ module EmbeddingUtil
 
     def port_available?(host, port)
       # Advisory only: the child runtime performs the real bind after this process releases the port.
+      # with_lock serializes callers within a single process, but a cross-process race window
+      # still exists between the probe socket closing here and the child process binding.
       server = TCPServer.new(host, port)
       true
     rescue Errno::EADDRINUSE, Errno::EACCES, SocketError
@@ -210,6 +212,9 @@ module EmbeddingUtil
       true
     rescue Errno::ESRCH, ArgumentError
       false
+    rescue Errno::EPERM
+      # Process exists but belongs to a different user; treat as running.
+      true
     end
 
     def with_lock(server_model)

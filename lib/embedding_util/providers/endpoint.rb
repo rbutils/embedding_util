@@ -88,11 +88,17 @@ module EmbeddingUtil
           index = item.fetch("index")
           RankedDocument.new(
             index: index,
-            document: item["document"] || documents.fetch(index),
+            document: item["document"] || fetch_document_at(documents, index),
             score: item.fetch("relevance_score") { item.fetch("score") },
             metadata: item.reject { |key, _value| %w[index document relevance_score score].include?(key) }
           )
         end
+      end
+
+      def fetch_document_at(documents, index)
+        documents.fetch(index)
+      rescue IndexError
+        raise EndpointError, "server returned out-of-range document index #{index.inspect} (#{documents.size} documents sent)"
       end
 
       def require_endpoint(endpoint, capability)

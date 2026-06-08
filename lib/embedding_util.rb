@@ -72,7 +72,7 @@ module EmbeddingUtil
     embed_result(text, **options).embedding
   end
 
-  def embed_many(texts, profile: configuration.resolved_profile, provider: nil)
+  def embed_many(texts, profile: configuration.resolved_profile, provider: nil, **_options)
     selected_provider(provider).embed(normalize_texts(texts), profile: resolve_profile(profile)).embedding
   end
 
@@ -81,6 +81,8 @@ module EmbeddingUtil
     texts = normalize_texts(input)
     result = selected_provider(provider).embed(texts, profile: resolve_profile(profile))
     return result unless scalar
+
+    raise EndpointError, "server returned no embeddings for the given input" if result.embedding.empty?
 
     EmbeddingResult.new(
       embedding: result.embedding.fetch(0),
