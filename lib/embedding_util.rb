@@ -6,7 +6,17 @@ module EmbeddingUtil
   class Error < StandardError; end
   class UnsupportedProviderError < Error; end
   class EndpointError < Error; end
-  class EndpointNotFoundError < EndpointError; end
+
+  class EndpointNotFoundError < EndpointError
+    attr_reader :uri, :path, :body
+
+    def initialize(uri, path:, body: nil)
+      @uri = uri
+      @path = path
+      @body = body
+      super("#{uri} returned 404")
+    end
+  end
 
   autoload :Configuration, "embedding_util/configuration"
   autoload :CLI, "embedding_util/cli"
@@ -67,8 +77,18 @@ module EmbeddingUtil
   end
 
   def embed_result(input, profile: configuration.resolved_profile, provider: nil)
+    scalar = !input.is_a?(Array)
     texts = normalize_texts(input)
-    selected_provider(provider).embed(texts, profile: resolve_profile(profile))
+    result = selected_provider(provider).embed(texts, profile: resolve_profile(profile))
+    return result unless scalar
+
+    EmbeddingResult.new(
+      embedding: result.embedding.fetch(0),
+      model: result.model,
+      profile: result.profile,
+      provider: result.provider,
+      metadata: result.metadata
+    )
   end
 
   def rerank(query, documents, **options)
@@ -98,10 +118,8 @@ module EmbeddingUtil
   def selected_provider(provider)
     return registry.resolve(config: configuration) unless provider
 
-    previous = configuration.provider
-    configuration.provider = provider
-    registry.resolve(config: configuration)
-  ensure
-    configuration.provider = previous if provider
+    local_config = configuration.dup
+    local_config.provider = provider
+    registry.resolve(config: local_config)
   end
 end

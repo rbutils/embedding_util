@@ -13,7 +13,7 @@ RSpec.describe EmbeddingUtil::Providers::SelfHosted do
 
     result = provider.embed(["hello"])
 
-    expect(result.embedding).to eq([0.1, 0.2])
+    expect(result.embedding).to eq([[0.1, 0.2]])
     expect(manager).to have_received(:ensure_server).with(:embedding, profile: EmbeddingUtil.profile)
   end
 

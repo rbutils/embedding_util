@@ -37,6 +37,39 @@ RSpec.describe EmbeddingUtil::ServerManager do
     expect(manager).to have_received(:start_background).with(model)
   end
 
+  it "waits outside the startup lock when another process is already starting" do
+    manager.send(:write_state, model, pid: Process.pid, url: "http://127.0.0.1:18080", runtime: "starting", port: 18_080)
+    allow(manager).to receive(:start_background)
+    allow(manager).to receive(:healthy_url?).and_return(false, true)
+
+    expect(manager.ensure_server(:embedding)).to eq("http://127.0.0.1:18080")
+    expect(manager).not_to have_received(:start_background)
+  end
+
+  it "omits shutdown-idle from background argv when idle shutdown is nil" do
+    config.shutdown_idle = nil
+    allow(manager).to receive(:selected_port_for).and_return(18_080)
+    allow(Process).to receive(:spawn).and_return(12_345)
+    allow(Process).to receive(:detach)
+
+    manager.send(:start_background, model)
+
+    expect(Process).to have_received(:spawn) do |*args|
+      expect(args).not_to include("--shutdown-idle")
+    end
+  end
+
+  it "writes provisional state when starting a background process" do
+    allow(manager).to receive(:selected_port_for).and_return(18_080)
+    allow(Process).to receive(:spawn).and_return(12_345)
+    allow(Process).to receive(:detach)
+
+    manager.send(:start_background, model)
+    state = manager.send(:read_state, model)
+
+    expect(state).to include("pid" => 12_345, "runtime" => "starting", "url" => "http://127.0.0.1:18080")
+  end
+
   it "reports missing processes as unhealthy" do
     state = { "pid" => -1, "url" => "http://127.0.0.1:18080" }
 

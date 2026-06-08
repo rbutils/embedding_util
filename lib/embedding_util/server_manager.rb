@@ -23,13 +23,16 @@ module EmbeddingUtil
 
     def ensure_server(capability, profile: config.resolved_profile)
       server_model = ServerModel.for(capability, profile)
+      log_path = server_log_path(server_model)
+
       with_lock(server_model) do
         state = read_state(server_model)
         return state.fetch("url") if healthy_state?(state)
 
-        log_path = start_background(server_model)
-        wait_for_healthy(server_model, log_path: log_path)
+        log_path = start_background(server_model) unless starting_state?(state)
       end
+
+      wait_for_healthy(server_model, log_path: log_path)
     end
 
     def serve(model:, runtime: config.runtime, shutdown_idle: config.shutdown_idle, host: config.host, port: nil)
@@ -62,21 +65,26 @@ module EmbeddingUtil
 
     def start_background(server_model)
       FileUtils.mkdir_p(config.state_dir)
-      log_path = File.join(config.state_dir, "#{server_model.name}.log")
+      log_path = server_log_path(server_model)
       selected_port = selected_port_for(server_model, host: config.host)
       argv = [
         RbConfig.ruby, executable_path, "serve",
         "--model", server_model.name,
         "--runtime", config.runtime.to_s,
         "--host", config.host,
-        "--port", selected_port.to_s,
-        "--shutdown-idle", config.shutdown_idle.to_s
+        "--port", selected_port.to_s
       ]
+      argv.push("--shutdown-idle", config.shutdown_idle.to_s) unless config.shutdown_idle.nil?
       warn "starting #{server_model.name} in background: #{argv.join(' ')}" if config.verbose
       warn "#{server_model.name} log: #{log_path}" if config.verbose
       pid = Process.spawn(*argv, out: [log_path, "a"], err: %i[child out], pgroup: true)
+      write_state(server_model, pid: pid, url: "http://#{config.host}:#{selected_port}", runtime: "starting", port: selected_port)
       Process.detach(pid)
       log_path
+    end
+
+    def server_log_path(server_model)
+      File.join(config.state_dir, "#{server_model.name}.log")
     end
 
     def executable_path
@@ -165,6 +173,10 @@ module EmbeddingUtil
       return false unless process_running?(state.fetch("pid"))
 
       healthy_url?(state.fetch("url"))
+    end
+
+    def starting_state?(state)
+      state && state["url"] && state["pid"] && process_running?(state.fetch("pid"))
     end
 
     def healthy_url?(url)

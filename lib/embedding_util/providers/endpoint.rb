@@ -33,7 +33,7 @@ module EmbeddingUtil
         data = Array(response.fetch("data"))
         embeddings = data.sort_by { |item| item.fetch("index", data.index(item) || 0) }.map { |item| item.fetch("embedding") }
         EmbeddingResult.new(
-          embedding: texts.length == 1 ? embeddings.fetch(0) : embeddings,
+          embedding: embeddings,
           model: response["model"],
           profile: profile.name,
           provider: provider_name,
@@ -45,7 +45,9 @@ module EmbeddingUtil
         endpoint = require_endpoint(config.reranker_endpoint_url, "reranker")
         response = begin
           post_json(endpoint, "/v1/rerank", rerank_payload(query, documents, profile))
-        rescue EndpointNotFoundError
+        rescue EndpointNotFoundError => e
+          raise unless fallback_rerank_not_found?(e)
+
           post_json(endpoint, "/rerank", rerank_payload(query, documents, profile))
         end
 
@@ -87,7 +89,7 @@ module EmbeddingUtil
       end
 
       def post_json(endpoint, path, payload)
-        uri = URI.join(endpoint.end_with?("/") ? endpoint : "#{endpoint}/", path.sub(%r{\A/}, ""))
+        uri = endpoint_uri(endpoint, path)
         request = Net::HTTP::Post.new(uri)
         request["Content-Type"] = "application/json"
         request.body = JSON.generate(payload)
@@ -96,7 +98,7 @@ module EmbeddingUtil
           http.request(request)
         end
 
-        raise EndpointNotFoundError, "#{uri} returned #{response.code}" if response.code.to_i == 404
+        raise EndpointNotFoundError.new(uri, path: path, body: response.body) if response.code.to_i == 404 && endpoint_not_found_response?(response.body)
         raise EndpointError, "#{uri} returned #{response.code}: #{response.body}" unless response.is_a?(Net::HTTPSuccess)
 
         JSON.parse(response.body)
@@ -104,6 +106,26 @@ module EmbeddingUtil
         raise EndpointError, "invalid JSON response from #{uri}: #{e.message}"
       rescue URI::InvalidURIError => e
         raise EndpointError, "invalid endpoint URL #{endpoint.inspect}: #{e.message}"
+      end
+
+      def endpoint_uri(endpoint, path)
+        uri = URI(endpoint)
+        segments = [uri.path, path].map { |part| part.to_s.gsub(%r{\A/+|/+\z}, "") }.reject(&:empty?)
+        uri.path = "/#{segments.join('/')}"
+        uri
+      end
+
+      def endpoint_not_found_response?(body)
+        return true if body.to_s.strip.empty?
+
+        JSON.parse(body)
+        false
+      rescue JSON::ParserError
+        true
+      end
+
+      def fallback_rerank_not_found?(error)
+        error.path == "/v1/rerank"
       end
     end
   end

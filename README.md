@@ -67,7 +67,7 @@ embedding_util serve --model embedding-small_multilingual_v1
 embedding_util serve --model reranker-small_multilingual_v1
 ```
 
-`serve` starts one model server per command and runs until stopped. Add `--shutdown-idle SECONDS` only when you want that manually managed server to stop itself after idle output.
+`serve` starts one model server per command and runs until stopped. Add `--shutdown-idle SECONDS` only when you want that manually managed server to stop itself after idle output; omit it, set it to `nil`, or pass `0` to disable idle shutdown.
 
 ## CLI
 
@@ -86,7 +86,7 @@ embedding_util rerank \
 
 `embed` prints a JSON array. `rerank` prints JSON objects with `index`, `document`, `score`, and `metadata`.
 
-`serve` starts one local model server. The default model is `embedding-small_multilingual_v1`; use `reranker-small_multilingual_v1` for the reranker server. By default, `serve` uses Ramalama when available and falls back to direct `llama-server`. It runs until stopped unless `--shutdown-idle` is provided.
+`serve` starts one local model server. The default model is `embedding-small_multilingual_v1`; use `reranker-small_multilingual_v1` for the reranker server. By default, `serve` uses Ramalama when available and falls back to direct `llama-server`. It runs until stopped unless a positive `--shutdown-idle` value is provided.
 
 Explicit `serve --port PORT` requires that exact port to be free. Without `--port`, `serve` prefers the profile default port and chooses the next free local port if needed.
 

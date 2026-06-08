@@ -41,4 +41,28 @@ RSpec.describe EmbeddingUtil do
 
     expect { described_class.embed("hello") }.to raise_error(EmbeddingUtil::UnsupportedProviderError, /Configure already-running local endpoints/)
   end
+
+  it "returns a flat vector for embed and nested vectors for embed_many" do
+    described_class.configure { |config| config.embedding_endpoint = "http://embedding.example" }
+    allow_any_instance_of(EmbeddingUtil::Providers::Endpoint).to receive(:post_json).and_return(
+      "model" => "qwen3-embedding-0.6b",
+      "data" => [{ "index" => 0, "embedding" => [0.1, 0.2] }]
+    )
+
+    expect(described_class.embed("hello", provider: :endpoint)).to eq([0.1, 0.2])
+    expect(described_class.embed_many(["hello"], provider: :endpoint)).to eq([[0.1, 0.2]])
+  end
+
+  it "does not mutate global configuration when selecting an explicit provider" do
+    described_class.configure { |config| config.embedding_endpoint = "http://embedding.example" }
+    previous_provider = described_class.configuration.provider
+    allow_any_instance_of(EmbeddingUtil::Providers::Endpoint).to receive(:post_json).and_return(
+      "model" => "qwen3-embedding-0.6b",
+      "data" => [{ "index" => 0, "embedding" => [0.1, 0.2] }]
+    )
+
+    described_class.embed("hello", provider: :endpoint)
+
+    expect(described_class.configuration.provider).to eq(previous_provider)
+  end
 end
