@@ -10,6 +10,19 @@ require_relative "../result"
 module EmbeddingUtil
   module Providers
     class Endpoint < Provider
+      NETWORK_ERRORS = [
+        Errno::ECONNREFUSED,
+        Errno::ECONNRESET,
+        Errno::EHOSTUNREACH,
+        Errno::ENETUNREACH,
+        EOFError,
+        IOError,
+        Net::OpenTimeout,
+        Net::ReadTimeout,
+        SocketError,
+        Timeout::Error
+      ].freeze
+
       def supported?
         !!(config.embedding_endpoint_url || config.reranker_endpoint_url)
       end
@@ -106,6 +119,8 @@ module EmbeddingUtil
         raise EndpointError, "invalid JSON response from #{uri}: #{e.message}"
       rescue URI::InvalidURIError => e
         raise EndpointError, "invalid endpoint URL #{endpoint.inspect}: #{e.message}"
+      rescue *NETWORK_ERRORS => e
+        raise EndpointError, "could not reach #{uri}: #{e.message}"
       end
 
       def endpoint_uri(endpoint, path)

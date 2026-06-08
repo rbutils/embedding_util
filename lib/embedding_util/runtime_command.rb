@@ -5,14 +5,14 @@ module EmbeddingUtil
     attr_reader :runtime, :server_model, :host, :port
 
     def initialize(runtime:, server_model:, host:, port:)
-      @runtime = runtime.to_sym
+      @runtime = self.class.normalize_runtime(runtime)
       @server_model = server_model
       @host = host
       @port = port
     end
 
     def self.available?(runtime)
-      case runtime.to_sym
+      case normalize_runtime(runtime)
       when :auto
         available?(:ramalama) || available?(:llama_server)
       when :ramalama
@@ -25,7 +25,7 @@ module EmbeddingUtil
     end
 
     def self.resolve(runtime)
-      requested = runtime.to_sym
+      requested = normalize_runtime(runtime)
       return requested unless requested == :auto
 
       return :ramalama if available?(:ramalama)
@@ -36,6 +36,10 @@ module EmbeddingUtil
 
     def self.command_path(command)
       ENV.fetch("PATH", "").split(File::PATH_SEPARATOR).map { |dir| File.join(dir, command) }.find { |path| File.executable?(path) && !File.directory?(path) }
+    end
+
+    def self.normalize_runtime(runtime)
+      runtime.to_s.tr("-", "_").to_sym
     end
 
     def argv

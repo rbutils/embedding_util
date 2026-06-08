@@ -49,4 +49,20 @@ RSpec.describe EmbeddingUtil::CLI do
       port: nil
     )
   end
+
+  it "does not override environment-derived configuration with CLI defaults" do
+    previous_runtime = ENV["EMBEDDING_UTIL_RUNTIME"]
+    previous_startup_timeout = ENV["EMBEDDING_UTIL_STARTUP_TIMEOUT"]
+    ENV["EMBEDDING_UTIL_RUNTIME"] = "llama_server"
+    ENV["EMBEDDING_UTIL_STARTUP_TIMEOUT"] = "12"
+    EmbeddingUtil.reset_configuration!
+
+    capture_stdout { described_class.start(["support"]) }
+
+    expect(EmbeddingUtil.configuration.runtime).to eq(:llama_server)
+    expect(EmbeddingUtil.configuration.startup_timeout).to eq(12.0)
+  ensure
+    ENV["EMBEDDING_UTIL_RUNTIME"] = previous_runtime
+    ENV["EMBEDDING_UTIL_STARTUP_TIMEOUT"] = previous_startup_timeout
+  end
 end

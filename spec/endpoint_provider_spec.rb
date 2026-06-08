@@ -65,6 +65,14 @@ RSpec.describe EmbeddingUtil::Providers::Endpoint do
     end.to raise_error(EmbeddingUtil::EndpointError, /model not found/)
   end
 
+  it "wraps network failures in endpoint errors" do
+    allow(Net::HTTP).to receive(:start).and_raise(Errno::ECONNREFUSED.new("connection refused"))
+
+    expect do
+      provider.send(:post_json, "http://embedding.example", "/v1/embeddings", {})
+    end.to raise_error(EmbeddingUtil::EndpointError, %r{could not reach http://embedding\.example/v1/embeddings})
+  end
+
   it "falls back from missing /v1/rerank to /rerank" do
     calls = []
     allow(provider).to receive(:post_json) do |_endpoint, path, _payload|

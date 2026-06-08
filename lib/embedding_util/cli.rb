@@ -7,7 +7,7 @@ module EmbeddingUtil
   class CLI < Thor
     CONFIG_OPTIONS = {
       profile: :to_sym.to_proc,
-      runtime: ->(value) { value.tr("-", "_").to_sym },
+      runtime: ->(value) { RuntimeCommand.normalize_runtime(value) },
       endpoint: ->(value) { value },
       embedding_endpoint: ->(value) { value },
       reranker_endpoint: ->(value) { value },
@@ -20,12 +20,12 @@ module EmbeddingUtil
     class_option :endpoint, type: :string, desc: "Endpoint serving both embedding and reranking APIs"
     class_option :embedding_endpoint, type: :string, desc: "Endpoint serving /v1/embeddings"
     class_option :reranker_endpoint, type: :string, desc: "Endpoint serving /v1/rerank or /rerank"
-    class_option :profile, type: :string, default: "small_multilingual_v1", desc: "Model profile"
-    class_option :runtime, type: :string, default: "auto", desc: "Self-hosting runtime: auto, ramalama, or llama-server"
+    class_option :profile, type: :string, desc: "Model profile"
+    class_option :runtime, type: :string, desc: "Self-hosting runtime: auto, ramalama, or llama-server"
     class_option :timeout, type: :numeric, desc: "HTTP timeout in seconds"
-    class_option :startup_timeout, type: :numeric, default: 3600, desc: "Seconds to wait for self-hosted server startup"
+    class_option :startup_timeout, type: :numeric, desc: "Seconds to wait for self-hosted server startup"
     class_option :shutdown_idle, type: :numeric, desc: "Stop self-hosted server after this many seconds without stdout/stderr activity"
-    class_option :verbose, type: :boolean, default: false, desc: "Print self-hosting diagnostics"
+    class_option :verbose, type: :boolean, desc: "Print self-hosting diagnostics"
 
     desc "support", "Display configured provider support"
     def support
@@ -82,7 +82,7 @@ module EmbeddingUtil
       configure_embedding_util
       ServerManager.new(config: EmbeddingUtil.configuration).serve(
         model: options[:model],
-        runtime: options[:runtime].tr("-", "_").to_sym,
+        runtime: options[:runtime] || EmbeddingUtil.configuration.runtime,
         shutdown_idle: options[:shutdown_idle]&.to_i,
         host: options[:host],
         port: options[:port]&.to_i
@@ -100,9 +100,10 @@ module EmbeddingUtil
 
       def cli_config
         CONFIG_OPTIONS.each_with_object({}) do |(key, coercion), values|
-          next unless options[key]
+          value = options[key]
+          next if value.nil?
 
-          values[key] = coercion.call(options[key])
+          values[key] = coercion.call(value)
         end
       end
     end

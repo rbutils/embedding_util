@@ -2,13 +2,14 @@
 
 module EmbeddingUtil
   class Configuration
-    attr_accessor :profile, :provider, :runtime, :endpoint, :embedding_endpoint, :reranker_endpoint, :timeout, :startup_timeout, :shutdown_idle, :host,
+    attr_accessor :profile, :provider, :endpoint, :embedding_endpoint, :reranker_endpoint, :timeout, :startup_timeout, :shutdown_idle, :host,
                   :embedding_port, :reranker_port, :state_dir, :verbose
+    attr_reader :runtime
 
     def initialize
       @profile = :small_multilingual_v1
       @provider = :auto
-      @runtime = ENV.fetch("EMBEDDING_UTIL_RUNTIME", "auto").to_sym
+      self.runtime = ENV.fetch("EMBEDDING_UTIL_RUNTIME", "auto")
       @endpoint = ENV["EMBEDDING_UTIL_ENDPOINT"]
       @embedding_endpoint = ENV["EMBEDDING_UTIL_EMBEDDING_ENDPOINT"]
       @reranker_endpoint = ENV["EMBEDDING_UTIL_RERANKER_ENDPOINT"]
@@ -20,6 +21,10 @@ module EmbeddingUtil
       @reranker_port = Integer(ENV.fetch("EMBEDDING_UTIL_RERANKER_PORT", "18081"))
       @state_dir = ENV.fetch("EMBEDDING_UTIL_STATE_DIR", File.expand_path("~/.local/state/embedding_util"))
       @verbose = ENV.fetch("EMBEDDING_UTIL_VERBOSE", "false").match?(/\A(?:1|true|yes|on)\z/i)
+    end
+
+    def runtime=(value)
+      @runtime = value.to_s.tr("-", "_").to_sym
     end
 
     def resolved_profile
