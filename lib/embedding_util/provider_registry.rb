@@ -43,12 +43,13 @@ module EmbeddingUtil
       <<~MESSAGE.strip
         Could not find #{target}.
 
-        For this implementation slice, configure already-running local endpoints:
+        Configure already-running local endpoints:
           EmbeddingUtil.configure { |c| c.embedding_endpoint = "http://127.0.0.1:18080" }
           EmbeddingUtil.configure { |c| c.reranker_endpoint = "http://127.0.0.1:18081" }
 
-        A single endpoint can be used with c.endpoint if it serves both /v1/embeddings and /v1/rerank.
-        Local process provisioning through Ramalama or llama.cpp is intentionally not enabled yet.
+        Or install a local runtime for self-hosting:
+          ramalama
+          llama-server
       MESSAGE
     end
   end

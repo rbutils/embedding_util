@@ -1,0 +1,80 @@
+# frozen_string_literal: true
+
+module EmbeddingUtil
+  class RuntimeCommand
+    attr_reader :runtime, :server_model, :host, :port
+
+    def initialize(runtime:, server_model:, host:, port:)
+      @runtime = runtime.to_sym
+      @server_model = server_model
+      @host = host
+      @port = port
+    end
+
+    def self.available?(runtime)
+      case runtime.to_sym
+      when :auto
+        available?(:ramalama) || available?(:llama_server)
+      when :ramalama
+        !!command_path("ramalama")
+      when :llama_server
+        !!command_path("llama-server")
+      else
+        false
+      end
+    end
+
+    def self.resolve(runtime)
+      requested = runtime.to_sym
+      return requested unless requested == :auto
+
+      return :ramalama if available?(:ramalama)
+      return :llama_server if available?(:llama_server)
+
+      :auto
+    end
+
+    def self.command_path(command)
+      ENV.fetch("PATH", "").split(File::PATH_SEPARATOR).map { |dir| File.join(dir, command) }.find { |path| File.executable?(path) && !File.directory?(path) }
+    end
+
+    def argv
+      case runtime
+      when :ramalama then ramalama_argv
+      when :llama_server then llama_server_argv
+      else raise UnsupportedProviderError, "no supported local runtime found; install ramalama or llama-server"
+      end
+    end
+
+    def label
+      runtime == :llama_server ? "llama-server" : runtime.to_s
+    end
+
+    private
+
+    def ramalama_argv
+      [
+        "ramalama", "--runtime=llama.cpp", "serve",
+        "--host", host,
+        "--port", port.to_s,
+        "--runtime-args=#{server_model.settings.fetch(:server_flags).join(' ')}",
+        huggingface_model
+      ]
+    end
+
+    def llama_server_argv
+      [
+        "llama-server",
+        "--host", host,
+        "--port", port.to_s,
+        "-hf", server_model.settings.fetch(:repo),
+        "-hff", server_model.settings.fetch(:file),
+        *server_model.settings.fetch(:server_flags)
+      ]
+    end
+
+    def huggingface_model
+      "hf://#{server_model.settings.fetch(:repo)}/#{server_model.settings.fetch(:file)}"
+    end
+  end
+end

@@ -17,9 +17,13 @@ module EmbeddingUtil
   autoload :ProviderRegistry, "embedding_util/provider_registry"
   autoload :RankedDocument, "embedding_util/result"
   autoload :RerankResult, "embedding_util/result"
+  autoload :ServerManager, "embedding_util/server_manager"
+  autoload :ServerModel, "embedding_util/server_model"
+  autoload :RuntimeCommand, "embedding_util/runtime_command"
 
   module Providers
     autoload :Endpoint, "embedding_util/providers/endpoint"
+    autoload :SelfHosted, "embedding_util/providers/self_hosted"
   end
 
   module_function
@@ -41,6 +45,7 @@ module EmbeddingUtil
     @registry ||= begin
       registry = ProviderRegistry.new
       registry.register(Providers::Endpoint)
+      registry.register(Providers::SelfHosted)
       registry
     end
   end

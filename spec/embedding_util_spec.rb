@@ -16,22 +16,29 @@ RSpec.describe EmbeddingUtil do
     expect(profile.reranker.fetch(:server_flags)).to eq(["--reranking"])
   end
 
-  it "reports endpoint support only when an endpoint is configured" do
-    expected_support = [{
-      provider: :endpoint,
-      supported: false,
-      embedding_endpoint: nil,
-      reranker_endpoint: nil
-    }]
+  it "defaults to a first-run friendly startup timeout" do
+    expect(described_class.configuration.startup_timeout).to eq(3600)
+  end
 
-    expect(described_class.support).to eq(expected_support)
+  it "reports endpoint support only when an endpoint is configured" do
+    endpoint_support = described_class.support.find { |item| item.fetch(:provider) == :endpoint }
+
+    expect(endpoint_support).to eq({
+                                     provider: :endpoint,
+                                     supported: false,
+                                     embedding_endpoint: nil,
+                                     reranker_endpoint: nil
+                                   })
 
     described_class.configure { |config| config.embedding_endpoint = "http://127.0.0.1:18080" }
 
-    expect(described_class.support.first).to include(provider: :endpoint, supported: true, embedding_endpoint: "http://127.0.0.1:18080")
+    endpoint_support = described_class.support.find { |item| item.fetch(:provider) == :endpoint }
+    expect(endpoint_support).to include(provider: :endpoint, supported: true, embedding_endpoint: "http://127.0.0.1:18080")
   end
 
   it "raises an actionable error when no provider is configured" do
-    expect { described_class.embed("hello") }.to raise_error(EmbeddingUtil::UnsupportedProviderError, /configure already-running local endpoints/)
+    allow(EmbeddingUtil::ServerManager).to receive(:supported?).and_return(false)
+
+    expect { described_class.embed("hello") }.to raise_error(EmbeddingUtil::UnsupportedProviderError, /Configure already-running local endpoints/)
   end
 end

@@ -33,4 +33,20 @@ RSpec.describe EmbeddingUtil::CLI do
     expect(output).to include("embedding_endpoint: http://127.0.0.1:18080")
     expect(output).to include("reranker_endpoint: http://127.0.0.1:18081")
   end
+
+  it "does not apply idle shutdown to explicit serve by default" do
+    manager = instance_double(EmbeddingUtil::ServerManager)
+    allow(EmbeddingUtil::ServerManager).to receive(:new).and_return(manager)
+    allow(manager).to receive(:serve)
+
+    described_class.start(["serve", "--model", "embedding-small_multilingual_v1"])
+
+    expect(manager).to have_received(:serve).with(
+      model: "embedding-small_multilingual_v1",
+      runtime: :auto,
+      shutdown_idle: nil,
+      host: "127.0.0.1",
+      port: nil
+    )
+  end
 end

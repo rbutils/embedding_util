@@ -5,11 +5,27 @@ require "thor"
 
 module EmbeddingUtil
   class CLI < Thor
+    CONFIG_OPTIONS = {
+      profile: :to_sym.to_proc,
+      runtime: ->(value) { value.tr("-", "_").to_sym },
+      endpoint: ->(value) { value },
+      embedding_endpoint: ->(value) { value },
+      reranker_endpoint: ->(value) { value },
+      timeout: ->(value) { value },
+      startup_timeout: ->(value) { value },
+      shutdown_idle: :to_i.to_proc,
+      verbose: ->(value) { value }
+    }.freeze
+
     class_option :endpoint, type: :string, desc: "Endpoint serving both embedding and reranking APIs"
     class_option :embedding_endpoint, type: :string, desc: "Endpoint serving /v1/embeddings"
     class_option :reranker_endpoint, type: :string, desc: "Endpoint serving /v1/rerank or /rerank"
     class_option :profile, type: :string, default: "small_multilingual_v1", desc: "Model profile"
+    class_option :runtime, type: :string, default: "auto", desc: "Self-hosting runtime: auto, ramalama, or llama-server"
     class_option :timeout, type: :numeric, desc: "HTTP timeout in seconds"
+    class_option :startup_timeout, type: :numeric, default: 3600, desc: "Seconds to wait for self-hosted server startup"
+    class_option :shutdown_idle, type: :numeric, desc: "Stop self-hosted server after this many seconds without stdout/stderr activity"
+    class_option :verbose, type: :boolean, default: false, desc: "Print self-hosting diagnostics"
 
     desc "support", "Display configured provider support"
     def support
@@ -35,6 +51,8 @@ module EmbeddingUtil
     def embed(text)
       configure_embedding_util
       puts JSON.generate(EmbeddingUtil.embed(text))
+    rescue Error => e
+      abort e.message
     end
 
     desc "rerank QUERY DOCUMENT...", "Rerank documents and print ranked results as JSON"
@@ -51,16 +69,40 @@ module EmbeddingUtil
         }
       end
       puts JSON.pretty_generate(results)
+    rescue Error => e
+      abort e.message
+    end
+
+    desc "serve", "Start one local model server and stop it after stdout/stderr is idle"
+    option :model, type: :string, default: "embedding-small_multilingual_v1",
+                   desc: "Model server to run, such as embedding-small_multilingual_v1 or reranker-small_multilingual_v1"
+    option :port, type: :numeric, desc: "Port for the model server"
+    option :host, type: :string, default: "127.0.0.1", desc: "Host for the model server"
+    def serve
+      configure_embedding_util
+      ServerManager.new(config: EmbeddingUtil.configuration).serve(
+        model: options[:model],
+        runtime: options[:runtime].tr("-", "_").to_sym,
+        shutdown_idle: options[:shutdown_idle]&.to_i,
+        host: options[:host],
+        port: options[:port]&.to_i
+      )
     end
 
     no_commands do
       def configure_embedding_util
         EmbeddingUtil.configure do |config|
-          config.profile = options[:profile].to_sym if options[:profile]
-          config.endpoint = options[:endpoint] if options[:endpoint]
-          config.embedding_endpoint = options[:embedding_endpoint] if options[:embedding_endpoint]
-          config.reranker_endpoint = options[:reranker_endpoint] if options[:reranker_endpoint]
-          config.timeout = options[:timeout] if options[:timeout]
+          cli_config.each do |key, value|
+            config.public_send("#{key}=", value)
+          end
+        end
+      end
+
+      def cli_config
+        CONFIG_OPTIONS.each_with_object({}) do |(key, coercion), values|
+          next unless options[key]
+
+          values[key] = coercion.call(options[key])
         end
       end
     end
