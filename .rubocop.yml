@@ -1,0 +1,27 @@
+AllCops:
+  TargetRubyVersion: 3.2
+  NewCops: disable
+
+Style/StringLiterals:
+  EnforcedStyle: double_quotes
+  Exclude:
+    - "spec/**/*"
+    - "embedding_util.gemspec"
+
+Style/FrozenStringLiteralComment:
+  Enabled: false
+
+Style/Documentation:
+  Enabled: false
+
+Layout/LineLength:
+  Max: 170
+
+Metrics/BlockLength:
+  Enabled: false
+Metrics/ClassLength:
+  Enabled: false
+Metrics/MethodLength:
+  Enabled: false
+Metrics/AbcSize:
+  Enabled: false
