@@ -111,7 +111,7 @@ module EmbeddingUtil
           http.request(request)
         end
 
-        raise EndpointNotFoundError.new(uri, path: path, body: response.body) if response.code.to_i == 404 && endpoint_not_found_response?(response.body)
+        raise EndpointNotFoundError.new(uri, path: path, body: response.body) if response.code.to_i == 404 && route_missing_response?(response.body)
         raise EndpointError, "#{uri} returned #{response.code}: #{response.body}" unless response.is_a?(Net::HTTPSuccess)
 
         JSON.parse(response.body)
@@ -130,7 +130,7 @@ module EmbeddingUtil
         uri
       end
 
-      def endpoint_not_found_response?(body)
+      def route_missing_response?(body)
         return true if body.to_s.strip.empty?
 
         JSON.parse(body)

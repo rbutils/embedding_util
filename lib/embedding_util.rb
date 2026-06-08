@@ -72,8 +72,8 @@ module EmbeddingUtil
     embed_result(text, **options).embedding
   end
 
-  def embed_many(texts, **options)
-    embed_result(texts, **options).embedding
+  def embed_many(texts, profile: configuration.resolved_profile, provider: nil)
+    selected_provider(provider).embed(normalize_texts(texts), profile: resolve_profile(profile)).embedding
   end
 
   def embed_result(input, profile: configuration.resolved_profile, provider: nil)

@@ -27,9 +27,7 @@ module EmbeddingUtil
 
       with_lock(server_model) do
         state = read_state(server_model)
-        return state.fetch("url") if healthy_state?(state)
-
-        log_path = start_background(server_model) unless starting_state?(state)
+        log_path = start_background(server_model) unless healthy_state?(state) || running_server_state?(state)
       end
 
       wait_for_healthy(server_model, log_path: log_path)
@@ -114,6 +112,7 @@ module EmbeddingUtil
     end
 
     def port_available?(host, port)
+      # Advisory only: the child runtime performs the real bind after this process releases the port.
       server = TCPServer.new(host, port)
       true
     rescue Errno::EADDRINUSE, Errno::EACCES, SocketError
@@ -127,6 +126,7 @@ module EmbeddingUtil
       loop do
         state = read_state(server_model)
         return state.fetch("url") if healthy_state?(state)
+        raise UnsupportedProviderError, process_exited_message(server_model, log_path) if tracked_process_exited?(state)
         raise UnsupportedProviderError, startup_timeout_message(server_model, log_path) if Time.now >= deadline
 
         sleep 0.25
@@ -141,13 +141,17 @@ module EmbeddingUtil
           sleep [shutdown_idle / 5.0, 1].max
           next if Time.now - yield < shutdown_idle
 
-          Process.kill("TERM", pid)
-          sleep 5
-          Process.kill("KILL", pid)
+          terminate_idle_process(pid)
         rescue Errno::ESRCH
           break
         end
       end
+    end
+
+    def terminate_idle_process(pid)
+      Process.kill("TERM", pid)
+      sleep 5
+      Process.kill("KILL", pid) if process_running?(pid)
     end
 
     def startup_timeout_message(server_model, log_path)
@@ -160,11 +164,21 @@ module EmbeddingUtil
       message
     end
 
+    def process_exited_message(server_model, log_path)
+      message = "#{server_model.name} server process exited before becoming healthy"
+      return message unless log_path
+
+      lines = log_tail(log_path)
+      message += "\nlog: #{log_path}"
+      message += "\nlast log lines:\n#{lines}" unless lines.empty?
+      message
+    end
+
     def log_tail(log_path)
       return "" unless File.exist?(log_path)
 
       File.readlines(log_path).last(20).join
-    rescue StandardError
+    rescue Errno::ENOENT, Errno::EACCES, IOError
       ""
     end
 
@@ -175,8 +189,12 @@ module EmbeddingUtil
       healthy_url?(state.fetch("url"))
     end
 
-    def starting_state?(state)
+    def running_server_state?(state)
       state && state["url"] && state["pid"] && process_running?(state.fetch("pid"))
+    end
+
+    def tracked_process_exited?(state)
+      state && state["url"] && state["pid"] && !process_running?(state.fetch("pid"))
     end
 
     def healthy_url?(url)

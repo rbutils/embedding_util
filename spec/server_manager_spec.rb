@@ -27,6 +27,18 @@ RSpec.describe EmbeddingUtil::ServerManager do
     expect(manager).not_to have_received(:start_background)
   end
 
+  it "does not return a stale URL when the tracked process exits after lock release" do
+    manager.send(:write_state, model, pid: Process.pid, url: "http://127.0.0.1:18080", runtime: "test", port: 18_080)
+    allow(manager).to receive(:process_running?).and_return(true, false, false)
+    allow(manager).to receive(:healthy_url?).and_return(true)
+    allow(manager).to receive(:start_background)
+
+    expect do
+      manager.ensure_server(:embedding)
+    end.to raise_error(EmbeddingUtil::UnsupportedProviderError, /server process exited before becoming healthy/)
+    expect(manager).not_to have_received(:start_background)
+  end
+
   it "starts a background serve process when state is missing" do
     allow(manager).to receive(:start_background) do
       manager.send(:write_state, model, pid: Process.pid, url: "http://127.0.0.1:18080", runtime: "test", port: 18_080)
@@ -68,6 +80,17 @@ RSpec.describe EmbeddingUtil::ServerManager do
     state = manager.send(:read_state, model)
 
     expect(state).to include("pid" => 12_345, "runtime" => "starting", "url" => "http://127.0.0.1:18080")
+  end
+
+  it "does not kill a process again when it exits after TERM" do
+    allow(Process).to receive(:kill)
+    allow(manager).to receive(:sleep)
+    allow(manager).to receive(:process_running?).and_return(false)
+
+    manager.send(:terminate_idle_process, 12_345)
+
+    expect(Process).to have_received(:kill).with("TERM", 12_345).once
+    expect(Process).not_to have_received(:kill).with("KILL", 12_345)
   end
 
   it "reports missing processes as unhealthy" do

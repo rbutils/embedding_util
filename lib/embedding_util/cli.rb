@@ -57,9 +57,9 @@ module EmbeddingUtil
 
     desc "rerank QUERY DOCUMENT...", "Rerank documents and print ranked results as JSON"
     def rerank(query, *documents)
+      configure_embedding_util
       raise Error, "provide at least one document to rerank" if documents.empty?
 
-      configure_embedding_util
       results = EmbeddingUtil.rerank(query, documents).map do |result|
         {
           index: result.index,
