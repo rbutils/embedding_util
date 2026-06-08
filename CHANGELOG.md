@@ -1,3 +1,9 @@
+## [0.1.1] - 2026-06-08
+
+- Fix local server lifecycle cleanup for Ramalama and direct `llama-server`
+- Stop named Ramalama servers after idle shutdown and fall back to Podman/Docker cleanup when needed
+- Ensure direct `llama-server` child processes are terminated on idle shutdown and interruption
+
 ## [0.1.0] - 2026-06-08
 
 - Initial release
