@@ -1,3 +1,11 @@
+## [0.1.2] - 2026-06-10
+
+- Add self-hosted reranker recovery for llama.cpp physical batch-size failures
+- Start managed reranker servers with `--ubatch-size 1024`
+- Restart managed reranker servers once with `--ubatch-size 4096` when larger rerank requests require it
+- Add configuration and CLI options for reranker ubatch defaults and maximums
+- Add clearer guidance for app-managed reranker endpoints that need a larger `--ubatch-size`
+
 ## [0.1.1] - 2026-06-08
 
 - Fix local server lifecycle cleanup for Ramalama and direct `llama-server`
