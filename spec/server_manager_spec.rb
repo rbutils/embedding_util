@@ -93,7 +93,13 @@ RSpec.describe EmbeddingUtil::ServerManager do
 
     flags = manager.send(:server_flags, reranker)
 
-    expect(flags).to eq(["--reranking", "--ubatch-size", "4096"])
+    expect(flags).to eq(["--reranking", "--batch-size", "4096", "--ubatch-size", "4096"])
+  end
+
+  it "replaces existing reranker batch and ubatch flags together" do
+    flags = manager.send(:with_reranker_batch_size, ["--reranking", "--batch-size", "2048", "--ubatch-size", "512"], 4096)
+
+    expect(flags).to eq(["--reranking", "--batch-size", "4096", "--ubatch-size", "4096"])
   end
 
   it "writes provisional state when starting a background process" do

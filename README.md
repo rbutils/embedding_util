@@ -118,9 +118,9 @@ Reranker model:
 
 - repo: `ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF`
 - file: `qwen3-reranker-0.6b-q8_0.gguf`
-- server flags: `--reranking --ubatch-size 1024`
+- server flags: `--reranking --batch-size 1024 --ubatch-size 1024`
 
-For self-hosted rerankers, `embedding_util` starts with `--ubatch-size 1024`. If a larger rerank request exceeds llama.cpp's physical batch size, the managed reranker is restarted once with `config.reranker_max_ubatch_size`, which defaults to `4096`, and the request is retried.
+For self-hosted rerankers, `embedding_util` starts with `--batch-size 1024 --ubatch-size 1024`. If a larger rerank request exceeds llama.cpp's physical batch size, the managed reranker is restarted once with both values set to `config.reranker_max_ubatch_size`, which defaults to `4096`, and the request is retried.
 
 Do not combine embedding and reranking flags for this profile. Run separate local servers.
 

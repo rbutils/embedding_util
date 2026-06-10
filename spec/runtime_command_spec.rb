@@ -42,7 +42,7 @@ RSpec.describe EmbeddingUtil::RuntimeCommand do
       "--port", "18081",
       "-hf", "ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF",
       "-hff", "qwen3-reranker-0.6b-q8_0.gguf",
-      "--reranking", "--ubatch-size", "1024"
+      "--reranking", "--batch-size", "1024", "--ubatch-size", "1024"
     ]
 
     expect(command.argv).to eq(expected)

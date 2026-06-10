@@ -16,6 +16,6 @@ RSpec.describe EmbeddingUtil::ServerModel do
     expect(model.capability).to eq(:reranker)
     expect(model.profile.name).to eq(:small_multilingual_v1)
     expect(model.name).to eq("reranker-small_multilingual_v1")
-    expect(model.settings.fetch(:server_flags)).to eq(["--reranking", "--ubatch-size", "1024"])
+    expect(model.settings.fetch(:server_flags)).to eq(["--reranking", "--batch-size", "1024", "--ubatch-size", "1024"])
   end
 end

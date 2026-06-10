@@ -153,8 +153,8 @@ module EmbeddingUtil
         message = "#{uri} returned #{response.code}: #{response.body}"
         return message unless reranker_batch_size_error?(path, response.body)
 
-        "#{message}. Restart the reranker server with a larger llama.cpp --ubatch-size; " \
-          "embedding_util-managed reranker servers use --ubatch-size 1024 by default."
+        "#{message}. Restart the reranker server with larger llama.cpp --batch-size and --ubatch-size values; " \
+          "embedding_util-managed reranker servers use 1024 by default and can retry with 4096."
       end
 
       def reranker_batch_size_error?(path, body)

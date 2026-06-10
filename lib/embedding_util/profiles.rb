@@ -19,7 +19,7 @@ module EmbeddingUtil
         repo: "ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF",
         file: "qwen3-reranker-0.6b-q8_0.gguf",
         model: "qwen3-reranker-0.6b",
-        server_flags: ["--reranking", "--ubatch-size", "1024"]
+        server_flags: ["--reranking", "--batch-size", "1024", "--ubatch-size", "1024"]
       }
     )
 

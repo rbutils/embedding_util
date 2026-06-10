@@ -85,7 +85,7 @@ RSpec.describe EmbeddingUtil::Providers::Endpoint do
 
     expect do
       provider.send(:post_json, "http://reranker.example", "/v1/rerank", {})
-    end.to raise_error(EmbeddingUtil::EndpointError, /--ubatch-size.*1024/)
+    end.to raise_error(EmbeddingUtil::EndpointError, /--batch-size.*--ubatch-size.*4096/)
   end
 
   it "falls back from missing /v1/rerank to /rerank" do

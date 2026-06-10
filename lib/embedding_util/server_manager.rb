@@ -127,10 +127,10 @@ module EmbeddingUtil
       flags = server_model.settings.fetch(:server_flags)
       return flags unless server_model.capability == :reranker
 
-      with_ubatch_size(flags, config.reranker_ubatch_size)
+      with_reranker_batch_size(flags, config.reranker_ubatch_size)
     end
 
-    def with_ubatch_size(flags, size)
+    def with_reranker_batch_size(flags, size)
       filtered = []
       skip_next = false
       flags.each do |flag|
@@ -139,14 +139,14 @@ module EmbeddingUtil
           next
         end
 
-        if ["--ubatch-size", "-ub"].include?(flag)
+        if ["--batch-size", "-b", "--ubatch-size", "-ub"].include?(flag)
           skip_next = true
           next
         end
 
         filtered << flag
       end
-      filtered + ["--ubatch-size", size.to_s]
+      filtered + ["--batch-size", size.to_s, "--ubatch-size", size.to_s]
     end
 
     def required_port(host, port)
