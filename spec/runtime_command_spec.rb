@@ -18,6 +18,12 @@ RSpec.describe EmbeddingUtil::RuntimeCommand do
     expect(command.argv).to eq(expected)
   end
 
+  it "passes an explicit Ramalama device option" do
+    command = described_class.new(runtime: :ramalama, server_model: embedding_model, host: "127.0.0.1", port: 18_080, ramalama_device: "none")
+
+    expect(command.argv).to include("--device", "none")
+  end
+
   it "builds Ramalama stop commands for named detached servers" do
     allow(described_class).to receive(:command_path).and_call_original
     allow(described_class).to receive(:command_path).with("ramalama").and_return("/usr/bin/ramalama")

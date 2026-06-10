@@ -22,20 +22,23 @@ module EmbeddingUtil
       end
 
       def embed(texts, profile: config.resolved_profile)
-        endpoint = ServerManager.new(config: config).ensure_server(:embedding, profile: profile)
-        endpoint_provider(embedding_endpoint: endpoint).embed(texts, profile: profile)
+        manager = ServerManager.new(config: config)
+        endpoint = manager.ensure_server(:embedding, profile: profile)
+        manager.track_activity(:embedding, profile: profile) do
+          endpoint_provider(embedding_endpoint: endpoint).embed(texts, profile: profile)
+        end
       end
 
       def rerank(query, documents, profile: config.resolved_profile)
         manager = ServerManager.new(config: config)
         endpoint = manager.ensure_server(:reranker, profile: profile)
-        endpoint_provider(reranker_endpoint: endpoint).rerank(query, documents, profile: profile)
+        rerank_with_activity(manager, endpoint, query, documents, profile)
       rescue EndpointError => e
-        raise unless reranker_batch_size_error?(e) && can_escalate_reranker_ubatch?
+        raise unless retryable_reranker_error?(e) && can_escalate_reranker_ubatch?
 
         config.reranker_ubatch_size = config.reranker_max_ubatch_size
         endpoint = manager.restart_server(:reranker, profile: profile)
-        endpoint_provider(reranker_endpoint: endpoint).rerank(query, documents, profile: profile)
+        rerank_with_activity(manager, endpoint, query, documents, profile)
       end
 
       private
@@ -47,8 +50,22 @@ module EmbeddingUtil
         Endpoint.new(config: endpoint_config)
       end
 
+      def rerank_with_activity(manager, endpoint, query, documents, profile)
+        manager.track_activity(:reranker, profile: profile) do
+          endpoint_provider(reranker_endpoint: endpoint).rerank(query, documents, profile: profile)
+        end
+      end
+
       def reranker_batch_size_error?(error)
         error.message.include?("increase the physical batch size")
+      end
+
+      def retryable_reranker_error?(error)
+        reranker_batch_size_error?(error) || reranker_connection_dropped?(error)
+      end
+
+      def reranker_connection_dropped?(error)
+        error.message.match?(%r{could not reach http://[^ ]+/v1/rerank: (?:end of file reached|Connection reset|connection reset|stream closed)})
       end
 
       def can_escalate_reranker_ubatch?

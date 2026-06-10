@@ -113,6 +113,38 @@ RSpec.describe EmbeddingUtil::ServerManager do
     expect(state).to include("pid" => 12_345, "runtime" => "starting", "url" => "http://127.0.0.1:18080")
   end
 
+  it "waits for the previous server URL to stop before restarting" do
+    events = []
+    manager.send(:write_state, model, pid: Process.pid, url: "http://127.0.0.1:18080", runtime: "starting", port: 18_080)
+    allow(manager).to receive(:terminate_runtime_process)
+    allow(manager).to receive(:stop_detached_server)
+    allow(manager).to receive(:start_background) do
+      events << :start_background
+      manager.send(:write_state, model, pid: Process.pid, url: "http://127.0.0.1:18081", runtime: "starting", port: 18_081)
+    end
+    allow(manager).to receive(:healthy_url?).with("http://127.0.0.1:18080") do
+      events << :old_health
+      events.count(:old_health) < 2
+    end
+    allow(manager).to receive(:healthy_url?).with("http://127.0.0.1:18081").and_return(true)
+
+    expect(manager.restart_server(:embedding)).to eq("http://127.0.0.1:18081")
+    expect(events).to eq(%i[old_health old_health start_background])
+  end
+
+  it "raises if the previous server URL stays healthy during restart" do
+    stub_const("EmbeddingUtil::ServerManager::STOP_TIMEOUT", 0.01)
+    allow(manager).to receive(:sleep)
+    manager.send(:write_state, model, pid: Process.pid, url: "http://127.0.0.1:18080", runtime: "starting", port: 18_080)
+    allow(manager).to receive(:terminate_runtime_process)
+    allow(manager).to receive(:stop_detached_server)
+    allow(manager).to receive(:healthy_url?).and_return(true)
+
+    expect do
+      manager.restart_server(:embedding)
+    end.to raise_error(EmbeddingUtil::UnsupportedProviderError, /did not stop before restart/)
+  end
+
   it "does not kill a process again when it exits after TERM" do
     allow(Process).to receive(:kill)
     allow(manager).to receive(:sleep)
@@ -168,6 +200,42 @@ RSpec.describe EmbeddingUtil::ServerManager do
     expect(events).to eq(%i[healthy watchdog])
   end
 
+  it "tracks the supervisor pid in state for detached runtimes" do
+    wait_thread = double("wait_thread", pid: 12_345, value: instance_double(Process::Status, exitstatus: 0))
+    allow(Open3).to receive(:popen2e).and_yield(nil, StringIO.new, wait_thread)
+    allow(manager).to receive(:selected_port_for).and_return(18_080)
+    allow(manager).to receive(:wait_for_serving)
+    allow(manager).to receive(:supervise_detached_server).and_return(0)
+    allow(manager).to receive(:delete_state)
+
+    manager.serve(model: model, runtime: :ramalama, shutdown_idle: 5)
+
+    state = manager.send(:read_state, model)
+    expect(state.fetch("pid")).to eq(Process.pid)
+  end
+
+  it "fails fast when a detached runtime launcher exits unsuccessfully" do
+    wait_thread = double("wait_thread", pid: 12_345, alive?: false, value: instance_double(Process::Status, success?: false))
+    allow(manager).to receive(:healthy_url?).and_return(false)
+
+    expect do
+      manager.send(:wait_for_serving, model, "http://127.0.0.1:18080", 12_345, wait_thread: wait_thread, check_process: false)
+    end.to raise_error(EmbeddingUtil::UnsupportedProviderError, /runtime launcher exited/)
+  end
+
+  it "passes Ramalama device settings to background serve processes" do
+    config.ramalama_device = "none"
+    allow(manager).to receive(:selected_port_for).and_return(18_080)
+    allow(Process).to receive(:spawn).and_return(12_345)
+    allow(Process).to receive(:detach)
+
+    manager.send(:start_background, model)
+
+    expect(Process).to have_received(:spawn) do |*args|
+      expect(args).to include("--ramalama-device", "none")
+    end
+  end
+
   it "does not consider idle shutdown while waiting for startup health" do
     allow(manager).to receive(:healthy_url?).and_return(false)
     allow(manager).to receive(:process_running?).and_return(false)
@@ -187,12 +255,31 @@ RSpec.describe EmbeddingUtil::ServerManager do
   end
 
   it "stops detached Ramalama servers after stdout is idle" do
-    command = instance_double(EmbeddingUtil::RuntimeCommand)
+    command = instance_double(EmbeddingUtil::RuntimeCommand, server_model: model)
     allow(manager).to receive(:sleep)
     allow(manager).to receive(:stop_detached_server)
 
     expect(manager.send(:supervise_detached_server, command, 5) { Time.now - 6 }).to eq(0)
     expect(manager).to have_received(:stop_detached_server).with(command)
+  end
+
+  it "does not stop detached servers while requests are active" do
+    manager.send(:write_state, model, pid: Process.pid, url: "http://127.0.0.1:18080", runtime: "ramalama", port: 18_080)
+    manager.send(:update_activity, model, 1)
+
+    expect(manager.send(:idle_expired?, 5, model, Time.now - 60)).to be(false)
+  end
+
+  it "tracks active requests in server state" do
+    manager.send(:write_state, model, pid: Process.pid, url: "http://127.0.0.1:18080", runtime: "ramalama", port: 18_080)
+
+    manager.track_activity(:embedding) do
+      expect(manager.send(:read_state, model).fetch("active_requests")).to eq(1)
+    end
+
+    state = manager.send(:read_state, model)
+    expect(state.fetch("active_requests")).to eq(0)
+    expect(state.fetch("last_activity_at")).to be_a(String)
   end
 
   it "tries fallback stop commands for detached servers" do

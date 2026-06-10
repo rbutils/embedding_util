@@ -67,7 +67,7 @@ embedding_util serve --model embedding-small_multilingual_v1
 embedding_util serve --model reranker-small_multilingual_v1
 ```
 
-`serve` starts one model server per command and runs until stopped. Add `--shutdown-idle SECONDS` only when you want that manually managed server to stop itself after idle output; omit it, set it to `nil`, or pass `0` to disable idle shutdown.
+`serve` starts one model server per command and runs until stopped. Add `--shutdown-idle SECONDS` only when you want that manually managed server to stop itself after it is idle; omit it, set it to `nil`, or pass `0` to disable idle shutdown.
 
 ## CLI
 
@@ -86,11 +86,13 @@ embedding_util rerank \
 
 `embed` prints a JSON array. `rerank` prints JSON objects with `index`, `document`, `score`, and `metadata`.
 
-`serve` starts one local model server. The default model is `embedding-small_multilingual_v1`; use `reranker-small_multilingual_v1` for the reranker server. By default, `serve` uses Ramalama when available and falls back to direct `llama-server`. It runs until stopped unless a positive `--shutdown-idle` value is provided.
+`serve` starts one local model server. The default model is `embedding-small_multilingual_v1`; use `reranker-small_multilingual_v1` for the reranker server. By default, `serve` uses Ramalama when available and falls back to direct `llama-server`. It runs until stopped unless a positive `--shutdown-idle` value is provided. Idle shutdown is request-aware for `embedding_util`-managed calls, so long-running embedding or reranking requests are not stopped just because the model server is temporarily quiet.
 
 Explicit `serve --port PORT` requires that exact port to be free. Without `--port`, `serve` prefers the profile default port and chooses the next free local port if needed.
 
 Use `--verbose` on `embed` or `rerank` to print self-hosting diagnostics, including the background `serve` command and log path. First-time model downloads are expected to work with the default startup timeout; use `--startup-timeout` only when you explicitly want to shorten or extend that wait.
+
+If Ramalama's automatic device passthrough does not work on a host, pass `--ramalama-device none` or set `EMBEDDING_UTIL_RAMALAMA_DEVICE=none` to force CPU/container-only serving.
 
 ## API
 
@@ -137,6 +139,7 @@ EmbeddingUtil.configure do |config|
   config.shutdown_idle = 300
   config.reranker_ubatch_size = 1024
   config.reranker_max_ubatch_size = 4096
+  config.ramalama_device = nil
   config.timeout = 60
 end
 ```
@@ -165,6 +168,7 @@ Environment variables are also supported:
 - `EMBEDDING_UTIL_RERANKER_PORT`
 - `EMBEDDING_UTIL_RERANKER_UBATCH_SIZE`
 - `EMBEDDING_UTIL_RERANKER_MAX_UBATCH_SIZE`
+- `EMBEDDING_UTIL_RAMALAMA_DEVICE`
 
 ## Development
 

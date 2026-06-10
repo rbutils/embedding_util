@@ -11,6 +11,8 @@ require "uri"
 
 module EmbeddingUtil
   class ServerManager
+    STOP_TIMEOUT = 30
+
     attr_reader :config
 
     def initialize(config: EmbeddingUtil.configuration)
@@ -47,10 +49,10 @@ module EmbeddingUtil
       previous_traps = install_interrupt_traps
       Open3.popen2e(*command.argv) do |_stdin, output, wait_thread|
         url = "http://#{host}:#{selected_port}"
-        write_state(server_model, pid: wait_thread.pid, url: url, runtime: command.label, port: selected_port)
+        write_state(server_model, pid: state_pid(command, wait_thread), url: url, runtime: command.label, port: selected_port)
         last_output_at_mutex = Mutex.new
         reader = stream_output(output) { last_output_at_mutex.synchronize { last_output_at = Time.now } }
-        wait_for_runtime_serving(command, server_model, url, wait_thread.pid)
+        wait_for_runtime_serving(command, server_model, url, wait_thread)
         supervise_runtime(command, wait_thread, shutdown_idle) { last_output_at_mutex.synchronize { last_output_at } }
       ensure
         cleanup_runtime(command, wait_thread)
@@ -65,11 +67,20 @@ module EmbeddingUtil
       server_model = ServerModel.for(capability, profile)
 
       with_lock(server_model) do
-        stop_server(server_model)
+        stopped_url = stop_server(server_model)
+        wait_for_stopped(server_model, stopped_url)
         start_background(server_model)
       end
 
       wait_for_healthy(server_model, log_path: server_log_path(server_model))
+    end
+
+    def track_activity(capability, profile: config.resolved_profile)
+      server_model = ServerModel.for(capability, profile)
+      update_activity(server_model, 1)
+      yield
+    ensure
+      update_activity(server_model, -1) if server_model
     end
 
     private
@@ -88,6 +99,7 @@ module EmbeddingUtil
       argv.push("--shutdown-idle", config.shutdown_idle.to_s) unless config.shutdown_idle.nil?
       argv.push("--reranker-ubatch-size", config.reranker_ubatch_size.to_s)
       argv.push("--reranker-max-ubatch-size", config.reranker_max_ubatch_size.to_s)
+      argv.push("--ramalama-device", config.ramalama_device.to_s) unless config.ramalama_device.to_s.empty?
       warn "starting #{server_model.name} in background: #{argv.join(' ')}" if config.verbose
       warn "#{server_model.name} log: #{log_path}" if config.verbose
       pid = Process.spawn(*argv, out: [log_path, "a"], err: %i[child out], pgroup: true)
@@ -119,7 +131,8 @@ module EmbeddingUtil
         server_model: server_model,
         host: host,
         port: port,
-        server_flags: server_flags(server_model)
+        server_flags: server_flags(server_model),
+        ramalama_device: config.ramalama_device
       )
     end
 
@@ -210,10 +223,14 @@ module EmbeddingUtil
       end
     end
 
-    def wait_for_runtime_serving(command, server_model, url, pid)
+    def wait_for_runtime_serving(command, server_model, url, wait_thread)
       warn "waiting for #{server_model.name} at #{url}" if config.verbose
-      wait_for_serving(server_model, url, pid, check_process: !command.detached_server?)
+      wait_for_serving(server_model, url, wait_thread.pid, wait_thread: wait_thread, check_process: !command.detached_server?)
       warn "#{server_model.name} is healthy" if config.verbose
+    end
+
+    def state_pid(command, wait_thread)
+      command.detached_server? ? Process.pid : wait_thread.pid
     end
 
     def supervise_runtime(command, wait_thread, shutdown_idle, &last_output_at)
@@ -226,10 +243,11 @@ module EmbeddingUtil
       watchdog&.kill
     end
 
-    def wait_for_serving(server_model, url, pid, check_process: true)
+    def wait_for_serving(server_model, url, pid, wait_thread: nil, check_process: true)
       deadline = Time.now + config.startup_timeout
       loop do
         return if healthy_url?(url)
+        raise UnsupportedProviderError, "#{server_model.name} runtime launcher exited before server became healthy" if launcher_failed?(wait_thread)
         raise UnsupportedProviderError, "#{server_model.name} server process exited before becoming healthy" if check_process && !process_running?(pid)
         raise UnsupportedProviderError, "timed out after #{config.startup_timeout}s waiting for #{server_model.name} to become healthy" if Time.now >= deadline
 
@@ -237,9 +255,15 @@ module EmbeddingUtil
       end
     end
 
+    def launcher_failed?(wait_thread)
+      return false unless wait_thread && !wait_thread.alive?
+
+      !wait_thread.value.success?
+    end
+
     def supervise_detached_server(command, shutdown_idle)
       loop do
-        if idle_expired?(shutdown_idle, yield)
+        if idle_expired?(shutdown_idle, command.server_model, yield)
           warn "stopping #{command.server_name} after #{shutdown_idle}s idle" if config.verbose
           stop_detached_server(command)
           return 0
@@ -252,8 +276,29 @@ module EmbeddingUtil
       130
     end
 
-    def idle_expired?(shutdown_idle, last_output_at)
-      shutdown_idle&.positive? && Time.now - last_output_at >= shutdown_idle
+    def idle_expired?(shutdown_idle, server_model, last_output_at)
+      return false unless shutdown_idle&.positive?
+
+      activity = activity_state(server_model, last_output_at)
+      activity.fetch(:active_requests).zero? && Time.now - activity.fetch(:last_activity_at) >= shutdown_idle
+    end
+
+    def activity_state(server_model, fallback_time)
+      state = read_state(server_model)
+      last_activity_at = parse_state_time(state&.fetch("last_activity_at", nil)) || fallback_time
+      last_output_at = [fallback_time, last_activity_at].max
+      {
+        active_requests: Integer(state&.fetch("active_requests", 0) || 0),
+        last_activity_at: last_output_at
+      }
+    rescue ArgumentError
+      { active_requests: 0, last_activity_at: fallback_time }
+    end
+
+    def parse_state_time(value)
+      Time.iso8601(value) if value
+    rescue ArgumentError
+      nil
     end
 
     def stop_detached_server(command)
@@ -268,13 +313,28 @@ module EmbeddingUtil
 
       runtime = state.fetch("runtime", config.runtime)
       port = state.fetch("port", server_model.default_port(config))
+      url = state["url"]
       command = runtime_command(runtime, server_model, config.host, port)
       if command.detached_server?
         stop_detached_server(command)
       else
         terminate_runtime_process(command, state["pid"])
+        stop_detached_server(runtime_command(:ramalama, server_model, config.host, port))
       end
       delete_state(server_model)
+      url
+    end
+
+    def wait_for_stopped(server_model, url)
+      return unless url
+
+      deadline = Time.now + STOP_TIMEOUT
+      loop do
+        return unless healthy_url?(url)
+        raise UnsupportedProviderError, "#{server_model.name} did not stop before restart" if Time.now >= deadline
+
+        sleep 0.25
+      end
     end
 
     def cleanup_runtime(command, wait_thread)
@@ -382,15 +442,32 @@ module EmbeddingUtil
     end
 
     def write_state(server_model, pid:, url:, runtime:, port:)
-      File.write(state_path(server_model), JSON.pretty_generate({
-                                                                  pid: pid,
-                                                                  url: url,
-                                                                  profile: server_model.profile.name,
-                                                                  capability: server_model.capability,
-                                                                  runtime: runtime,
-                                                                  port: port,
-                                                                  updated_at: Time.now.utc.iso8601
-                                                                }))
+      state = {
+        pid: pid,
+        url: url,
+        profile: server_model.profile.name,
+        capability: server_model.capability,
+        runtime: runtime,
+        port: port,
+        active_requests: 0,
+        last_activity_at: Time.now.utc.iso8601,
+        updated_at: Time.now.utc.iso8601
+      }
+      File.write(state_path(server_model), JSON.pretty_generate(state))
+    end
+
+    def update_activity(server_model, delta)
+      with_lock(server_model) do
+        state = read_state(server_model)
+        next unless state
+
+        state["active_requests"] = [Integer(state.fetch("active_requests", 0)) + delta, 0].max
+        state["last_activity_at"] = Time.now.utc.iso8601
+        state["updated_at"] = Time.now.utc.iso8601
+        File.write(state_path(server_model), JSON.pretty_generate(state))
+      end
+    rescue ArgumentError
+      nil
     end
 
     def read_state(server_model)

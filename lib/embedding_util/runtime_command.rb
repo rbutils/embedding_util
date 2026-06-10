@@ -2,14 +2,15 @@
 
 module EmbeddingUtil
   class RuntimeCommand
-    attr_reader :runtime, :server_model, :host, :port, :server_flags
+    attr_reader :runtime, :server_model, :host, :port, :server_flags, :ramalama_device
 
-    def initialize(runtime:, server_model:, host:, port:, server_flags: nil)
+    def initialize(runtime:, server_model:, host:, port:, **options)
       @runtime = self.class.normalize_runtime(runtime)
       @server_model = server_model
       @host = host
       @port = port
-      @server_flags = server_flags || server_model.settings.fetch(:server_flags)
+      @server_flags = options[:server_flags] || server_model.settings.fetch(:server_flags)
+      @ramalama_device = options[:ramalama_device]
     end
 
     def self.available?(runtime)
@@ -85,6 +86,7 @@ module EmbeddingUtil
       [
         "ramalama", "--runtime=llama.cpp", "serve",
         "--name", server_name,
+        *ramalama_device_args,
         "--host", host,
         "--port", port.to_s,
         "--runtime-args=#{server_flags.join(' ')}",
@@ -105,6 +107,10 @@ module EmbeddingUtil
 
     def huggingface_model
       "hf://#{server_model.settings.fetch(:repo)}/#{server_model.settings.fetch(:file)}"
+    end
+
+    def ramalama_device_args
+      ramalama_device.to_s.empty? ? [] : ["--device", ramalama_device.to_s]
     end
   end
 end
