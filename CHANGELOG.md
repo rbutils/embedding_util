@@ -1,3 +1,11 @@
+## [0.1.4] - 2026-06-10
+
+- Stabilize managed Ramalama reranker startup, restart, and idle cleanup
+- Add request-aware idle tracking so active embedding/reranking requests are not stopped during quiet server output
+- Add `ramalama_device` configuration, CLI, and environment support for hosts that need `--device none`
+- Retry managed reranker EOF/connection-drop failures once after escalating batch settings
+- Verify stability through repeated `index_util/examples/ruby_api` queries
+
 ## [0.1.3] - 2026-06-10
 
 - Set self-hosted reranker `--batch-size` and `--ubatch-size` together
