@@ -2,6 +2,9 @@
 
 module EmbeddingUtil
   class RuntimeCommand
+    RAMALAMA_CONTEXT_SIZE = "4096"
+    RAMALAMA_RUNTIME_FLAGS = ["--cache-ram", "0"].freeze
+
     attr_reader :runtime, :server_model, :host, :port, :server_flags, :ramalama_device
 
     def initialize(runtime:, server_model:, host:, port:, **options)
@@ -87,11 +90,16 @@ module EmbeddingUtil
         "ramalama", "--runtime=llama.cpp", "serve",
         "--name", server_name,
         *ramalama_device_args,
+        "--ctx-size", RAMALAMA_CONTEXT_SIZE,
         "--host", host,
         "--port", port.to_s,
-        "--runtime-args=#{server_flags.join(' ')}",
+        "--runtime-args=#{ramalama_runtime_flags.join(' ')}",
         huggingface_model
       ]
+    end
+
+    def ramalama_runtime_flags
+      server_flags + RAMALAMA_RUNTIME_FLAGS
     end
 
     def llama_server_argv

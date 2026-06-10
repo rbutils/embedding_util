@@ -9,9 +9,10 @@ RSpec.describe EmbeddingUtil::RuntimeCommand do
     expected = [
       "ramalama", "--runtime=llama.cpp", "serve",
       "--name", "embedding-util-embedding-small-multilingual-v1",
+      "--ctx-size", "4096",
       "--host", "127.0.0.1",
       "--port", "18080",
-      "--runtime-args=--embedding --pooling last",
+      "--runtime-args=--embedding --pooling last --cache-ram 0",
       "hf://Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf"
     ]
 

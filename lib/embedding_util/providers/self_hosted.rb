@@ -7,6 +7,8 @@ require_relative "endpoint"
 module EmbeddingUtil
   module Providers
     class SelfHosted < Provider
+      EMBEDDING_BATCH_SIZE = 32
+
       def supported?
         ServerManager.supported?(config)
       end
@@ -25,7 +27,7 @@ module EmbeddingUtil
         manager = ServerManager.new(config: config)
         endpoint = manager.ensure_server(:embedding, profile: profile)
         manager.track_activity(:embedding, profile: profile) do
-          endpoint_provider(embedding_endpoint: endpoint).embed(texts, profile: profile)
+          embed_batches(endpoint, texts, profile)
         end
       end
 
@@ -48,6 +50,21 @@ module EmbeddingUtil
         endpoint_config.embedding_endpoint = embedding_endpoint
         endpoint_config.reranker_endpoint = reranker_endpoint
         Endpoint.new(config: endpoint_config)
+      end
+
+      def embed_batches(endpoint, texts, profile)
+        results = texts.each_slice(EMBEDDING_BATCH_SIZE).map do |batch|
+          endpoint_provider(embedding_endpoint: endpoint).embed(batch, profile: profile)
+        end
+        return results.fetch(0) if results.size == 1
+
+        EmbeddingResult.new(
+          embedding: results.flat_map(&:embedding),
+          model: results.fetch(0).model,
+          profile: profile.name,
+          provider: provider_name,
+          metadata: { batches: results.size }
+        )
       end
 
       def rerank_with_activity(manager, endpoint, query, documents, profile)

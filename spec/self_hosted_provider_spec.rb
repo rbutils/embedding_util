@@ -19,6 +19,27 @@ RSpec.describe EmbeddingUtil::Providers::SelfHosted do
     expect(manager).to have_received(:track_activity).with(:embedding, profile: EmbeddingUtil.profile)
   end
 
+  it "splits self-hosted embedding requests into smaller batches" do
+    manager = instance_double(EmbeddingUtil::ServerManager, ensure_server: "http://127.0.0.1:18080")
+    allow(manager).to receive(:track_activity).and_yield
+    allow(EmbeddingUtil::ServerManager).to receive(:new).and_return(manager)
+    batch_sizes = []
+    allow_any_instance_of(EmbeddingUtil::Providers::Endpoint).to receive(:post_json) do |_instance, _endpoint, _path, payload|
+      inputs = payload.fetch(:input)
+      batch_sizes << inputs.size
+      {
+        "model" => "qwen3-embedding-0.6b",
+        "data" => inputs.each_with_index.map { |text, index| { "index" => index, "embedding" => [text.delete_prefix("text-").to_i] } }
+      }
+    end
+
+    result = provider.embed(Array.new(65) { |index| "text-#{index}" })
+
+    expect(batch_sizes).to eq([32, 32, 1])
+    expect(result.embedding).to eq(Array.new(65) { |index| [index] })
+    expect(result.metadata).to eq(batches: 3)
+  end
+
   it "uses a self-hosted reranker endpoint after ensuring the server" do
     manager = instance_double(EmbeddingUtil::ServerManager, ensure_server: "http://127.0.0.1:18081")
     allow(manager).to receive(:track_activity).and_yield
