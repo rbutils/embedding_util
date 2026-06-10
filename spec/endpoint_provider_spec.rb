@@ -73,6 +73,21 @@ RSpec.describe EmbeddingUtil::Providers::Endpoint do
     end.to raise_error(EmbeddingUtil::EndpointError, %r{could not reach http://embedding\.example/v1/embeddings})
   end
 
+  it "adds a reranker batch-size hint for llama.cpp physical batch failures" do
+    response = Struct.new(:code, :body) do
+      def is_a?(klass)
+        return false if klass == Net::HTTPSuccess
+
+        super
+      end
+    end.new("500", '{"error":{"message":"input (614 tokens) is too large to process. increase the physical batch size (current batch size: 512)"}}')
+    allow(Net::HTTP).to receive(:start).and_return(response)
+
+    expect do
+      provider.send(:post_json, "http://reranker.example", "/v1/rerank", {})
+    end.to raise_error(EmbeddingUtil::EndpointError, /--ubatch-size.*1024/)
+  end
+
   it "falls back from missing /v1/rerank to /rerank" do
     calls = []
     allow(provider).to receive(:post_json) do |_endpoint, path, _payload|

@@ -14,6 +14,8 @@ module EmbeddingUtil
       timeout: ->(value) { value },
       startup_timeout: ->(value) { value },
       shutdown_idle: :to_i.to_proc,
+      reranker_ubatch_size: :to_i.to_proc,
+      reranker_max_ubatch_size: :to_i.to_proc,
       verbose: ->(value) { value }
     }.freeze
 
@@ -25,6 +27,8 @@ module EmbeddingUtil
     class_option :timeout, type: :numeric, desc: "HTTP timeout in seconds"
     class_option :startup_timeout, type: :numeric, desc: "Seconds to wait for self-hosted server startup"
     class_option :shutdown_idle, type: :numeric, desc: "Stop self-hosted server after this many seconds without stdout/stderr activity"
+    class_option :reranker_ubatch_size, type: :numeric, desc: "llama.cpp physical batch size for self-hosted reranker servers"
+    class_option :reranker_max_ubatch_size, type: :numeric, desc: "Largest reranker physical batch size for automatic retry"
     class_option :verbose, type: :boolean, desc: "Print self-hosting diagnostics"
 
     desc "support", "Display configured provider support"

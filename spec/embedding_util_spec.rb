@@ -13,7 +13,7 @@ RSpec.describe EmbeddingUtil do
     expect(profile.embedding.fetch(:dimensions)).to eq(1024)
     expect(profile.embedding.fetch(:server_flags)).to eq(["--embedding", "--pooling", "last"])
     expect(profile.reranker.fetch(:repo)).to eq("ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF")
-    expect(profile.reranker.fetch(:server_flags)).to eq(["--reranking"])
+    expect(profile.reranker.fetch(:server_flags)).to eq(["--reranking", "--ubatch-size", "1024"])
   end
 
   it "defaults to a first-run friendly startup timeout" do

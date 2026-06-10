@@ -2,13 +2,14 @@
 
 module EmbeddingUtil
   class RuntimeCommand
-    attr_reader :runtime, :server_model, :host, :port
+    attr_reader :runtime, :server_model, :host, :port, :server_flags
 
-    def initialize(runtime:, server_model:, host:, port:)
+    def initialize(runtime:, server_model:, host:, port:, server_flags: nil)
       @runtime = self.class.normalize_runtime(runtime)
       @server_model = server_model
       @host = host
       @port = port
+      @server_flags = server_flags || server_model.settings.fetch(:server_flags)
     end
 
     def self.available?(runtime)
@@ -86,7 +87,7 @@ module EmbeddingUtil
         "--name", server_name,
         "--host", host,
         "--port", port.to_s,
-        "--runtime-args=#{server_model.settings.fetch(:server_flags).join(' ')}",
+        "--runtime-args=#{server_flags.join(' ')}",
         huggingface_model
       ]
     end
@@ -98,7 +99,7 @@ module EmbeddingUtil
         "--port", port.to_s,
         "-hf", server_model.settings.fetch(:repo),
         "-hff", server_model.settings.fetch(:file),
-        *server_model.settings.fetch(:server_flags)
+        *server_flags
       ]
     end
 

@@ -118,7 +118,7 @@ module EmbeddingUtil
         end
 
         raise EndpointNotFoundError.new(uri, path: path, body: response.body) if response.code.to_i == 404 && route_missing_response?(response.body)
-        raise EndpointError, "#{uri} returned #{response.code}: #{response.body}" unless response.is_a?(Net::HTTPSuccess)
+        raise EndpointError, endpoint_error_message(uri, response, path) unless response.is_a?(Net::HTTPSuccess)
 
         JSON.parse(response.body)
       rescue JSON::ParserError => e
@@ -147,6 +147,18 @@ module EmbeddingUtil
 
       def fallback_rerank_not_found?(error)
         error.path == "/v1/rerank"
+      end
+
+      def endpoint_error_message(uri, response, path)
+        message = "#{uri} returned #{response.code}: #{response.body}"
+        return message unless reranker_batch_size_error?(path, response.body)
+
+        "#{message}. Restart the reranker server with a larger llama.cpp --ubatch-size; " \
+          "embedding_util-managed reranker servers use --ubatch-size 1024 by default."
+      end
+
+      def reranker_batch_size_error?(path, body)
+        path.end_with?("/rerank") && body.to_s.include?("increase the physical batch size")
       end
     end
   end

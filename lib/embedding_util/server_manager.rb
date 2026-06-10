@@ -37,7 +37,7 @@ module EmbeddingUtil
       server_model = model.is_a?(ServerModel) ? model : ServerModel.parse(model)
       resolved_runtime = RuntimeCommand.resolve(runtime)
       selected_port = selected_port_for(server_model, host: host, port: port)
-      command = RuntimeCommand.new(runtime: resolved_runtime, server_model: server_model, host: host, port: selected_port)
+      command = runtime_command(resolved_runtime, server_model, host, selected_port)
       last_output_at = Time.now
 
       FileUtils.mkdir_p(config.state_dir)
@@ -61,6 +61,17 @@ module EmbeddingUtil
       end
     end
 
+    def restart_server(capability, profile: config.resolved_profile)
+      server_model = ServerModel.for(capability, profile)
+
+      with_lock(server_model) do
+        stop_server(server_model)
+        start_background(server_model)
+      end
+
+      wait_for_healthy(server_model, log_path: server_log_path(server_model))
+    end
+
     private
 
     def start_background(server_model)
@@ -75,6 +86,8 @@ module EmbeddingUtil
         "--port", selected_port.to_s
       ]
       argv.push("--shutdown-idle", config.shutdown_idle.to_s) unless config.shutdown_idle.nil?
+      argv.push("--reranker-ubatch-size", config.reranker_ubatch_size.to_s)
+      argv.push("--reranker-max-ubatch-size", config.reranker_max_ubatch_size.to_s)
       warn "starting #{server_model.name} in background: #{argv.join(' ')}" if config.verbose
       warn "#{server_model.name} log: #{log_path}" if config.verbose
       pid = Process.spawn(*argv, out: [log_path, "a"], err: %i[child out], pgroup: true)
@@ -98,6 +111,42 @@ module EmbeddingUtil
       return required_port(host, port) if port
 
       available_port(host, server_model.default_port(config))
+    end
+
+    def runtime_command(runtime, server_model, host, port)
+      RuntimeCommand.new(
+        runtime: runtime,
+        server_model: server_model,
+        host: host,
+        port: port,
+        server_flags: server_flags(server_model)
+      )
+    end
+
+    def server_flags(server_model)
+      flags = server_model.settings.fetch(:server_flags)
+      return flags unless server_model.capability == :reranker
+
+      with_ubatch_size(flags, config.reranker_ubatch_size)
+    end
+
+    def with_ubatch_size(flags, size)
+      filtered = []
+      skip_next = false
+      flags.each do |flag|
+        if skip_next
+          skip_next = false
+          next
+        end
+
+        if ["--ubatch-size", "-ub"].include?(flag)
+          skip_next = true
+          next
+        end
+
+        filtered << flag
+      end
+      filtered + ["--ubatch-size", size.to_s]
     end
 
     def required_port(host, port)
@@ -211,6 +260,21 @@ module EmbeddingUtil
       command.stop_argvs.any? do |stop_argv|
         system(*stop_argv, out: File::NULL, err: File::NULL)
       end
+    end
+
+    def stop_server(server_model)
+      state = read_state(server_model)
+      return delete_state(server_model) unless state
+
+      runtime = state.fetch("runtime", config.runtime)
+      port = state.fetch("port", server_model.default_port(config))
+      command = runtime_command(runtime, server_model, config.host, port)
+      if command.detached_server?
+        stop_detached_server(command)
+      else
+        terminate_runtime_process(command, state["pid"])
+      end
+      delete_state(server_model)
     end
 
     def cleanup_runtime(command, wait_thread)

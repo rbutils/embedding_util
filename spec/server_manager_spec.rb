@@ -72,6 +72,30 @@ RSpec.describe EmbeddingUtil::ServerManager do
     end
   end
 
+  it "passes reranker ubatch settings to background serve processes" do
+    config.reranker_ubatch_size = 4096
+    allow(manager).to receive(:selected_port_for).and_return(18_081)
+    allow(Process).to receive(:spawn).and_return(12_345)
+    allow(Process).to receive(:detach)
+    reranker = EmbeddingUtil::ServerModel.parse("reranker-small_multilingual_v1")
+
+    manager.send(:start_background, reranker)
+
+    expect(Process).to have_received(:spawn) do |*args|
+      expect(args).to include("--reranker-ubatch-size", "4096")
+      expect(args).to include("--reranker-max-ubatch-size", "4096")
+    end
+  end
+
+  it "applies configured reranker ubatch size to runtime flags" do
+    config.reranker_ubatch_size = 4096
+    reranker = EmbeddingUtil::ServerModel.parse("reranker-small_multilingual_v1")
+
+    flags = manager.send(:server_flags, reranker)
+
+    expect(flags).to eq(["--reranking", "--ubatch-size", "4096"])
+  end
+
   it "writes provisional state when starting a background process" do
     allow(manager).to receive(:selected_port_for).and_return(18_080)
     allow(Process).to receive(:spawn).and_return(12_345)
