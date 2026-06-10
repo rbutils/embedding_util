@@ -1,3 +1,9 @@
+## [0.1.5] - 2026-06-10
+
+- Add lean Ramalama defaults with bounded `--ctx-size 4096` and disabled llama.cpp prompt cache via `--cache-ram 0`
+- Split self-hosted embedding arrays into smaller endpoint batches to keep local document indexing within bounded context
+- Preserve embedding output order across self-hosted batches
+
 ## [0.1.4] - 2026-06-10
 
 - Stabilize managed Ramalama reranker startup, restart, and idle cleanup
