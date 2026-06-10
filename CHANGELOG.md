@@ -1,3 +1,9 @@
+## [0.1.3] - 2026-06-10
+
+- Set self-hosted reranker `--batch-size` and `--ubatch-size` together
+- Retry managed reranker batch-size failures with both values raised to `4096`
+- Update endpoint guidance to recommend increasing both llama.cpp batch-size settings for app-managed rerankers
+
 ## [0.1.2] - 2026-06-10
 
 - Add self-hosted reranker recovery for llama.cpp physical batch-size failures
